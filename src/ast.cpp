@@ -39,13 +39,31 @@ const char * floatTemps[] = {"$f0",
                         };
 
 #define FLOAT_TEMP_COUNT 32
-set<string> intTempMap;
 set<string> floatTempMap;
 
 extern Asm assemblyFile;
 
 int globalStackPointer = 0;
 
+string saveState(){
+    set<string>::iterator it = floatTempMap.begin();
+    stringstream ss;
+    ss<<"sw $ra, " <<globalStackPointer<< "($sp)\n";
+    globalStackPointer+=4;
+    return ss.str();
+}
+
+string retrieveState(string state){
+    std::string::size_type n = 0;
+    string s = "sw";
+    while ( ( n = state.find( s, n ) ) != std::string::npos )
+    {
+    state.replace( n, s.size(), "lw" );
+    n += 2;
+    globalStackPointer-=4;
+    }
+    return state;
+}
 string getFloatTemp(){
     for (int i = 0; i < FLOAT_TEMP_COUNT; i++)
     {
@@ -63,19 +81,50 @@ void releaseFloatTemp(string temp){
 }
 
 void FloatExpr::genCode(Code &code){
+    string floatTemp = getFloatTemp();
+    code.place = floatTemp;
+    stringstream ss;
+    ss << "li.s " << floatTemp <<", "<< this->number <<endl;
+    code.code = ss.str();
 }
 
 void SubExpr::genCode(Code &code){
+    Code leftCode, rightCode;
+    stringstream ss;
+    this->expr1->genCode(leftCode);
+    this->expr2->genCode(rightCode);
+    releaseFloatTemp(leftCode.place);
+    releaseFloatTemp(rightCode.place);
+    ss << leftCode.code << endl
+    << rightCode.code <<endl
+    << "sub.s "<< code.place<<", "<< leftCode.place <<", "<< rightCode.place<<endl;
 }
 
 void DivExpr::genCode(Code &code){
+    Code leftCode, rightCode;
+    stringstream ss;
+    this->expr1->genCode(leftCode);
+    this->expr2->genCode(rightCode);
+    releaseFloatTemp(leftCode.place);
+    releaseFloatTemp(rightCode.place);
+    ss << leftCode.code << endl
+    << rightCode.code <<endl
+    << "div.s "<< code.place<<", "<< leftCode.place <<", "<< rightCode.place<<endl;
 }
 
 void IdExpr::genCode(Code &code){
+    if(floatTempMap.find(this->id) == floatTempMap.end()){
+        string floatTemp = getFloatTemp();
+        code.place = floatTemp;
+        code.code = "l.s "+ floatTemp + ", "+ this->id + "\n";
+    }
 }
 
 string ExprStatement::genCode(){
-    return "Expr statement code generation\n";
+    Code exprCode;
+    this->expr->genCode(exprCode);
+    releaseFloatTemp(exprCode.place);
+    return exprCode.code;
 }
 
 string IfStatement::genCode(){
@@ -83,20 +132,86 @@ string IfStatement::genCode(){
 }
 
 void MethodInvocationExpr::genCode(Code &code){
+    list<Expr *>::iterator it = this->expressions.begin();
+    list<Code> codes;
+    stringstream ss;
+    Code argCode;
+    while (it != this->expressions.end())
+    {
+        (*it)->genCode(argCode);
+        ss << argCode.code <<endl;
+        codes.push_back(argCode);
+        it++;
+    }
+
+    int i = 0;
+    list<Code>::iterator placesIt = codes.begin();
+    while (placesIt != codes.end())
+    {
+        releaseFloatTemp((*placesIt).place);
+        ss << "mfc1 $a"<<i<<", "<< (*placesIt).place<<endl;
+        i++;
+        placesIt++;
+    }
+
+    ss<< "jal "<< this->id<<endl;
+    string reg;
+    reg = getFloatTemp();
+    ss << "mfc1 $v0, "<< reg<<endl;
+    code.code = ss.str();
+    code.place = reg;
     
 }
 
 string AssignationStatement::genCode(){
-    return "Assignation statement code generation\n";
+    Code rightSideCode;
+    stringstream ss;
+    this->value->genCode(rightSideCode);
+    ss<< rightSideCode.code <<endl;
+    string name = ((IdExpr *)this->value)->id;
+    if(floatTempMap.find(name) == floatTempMap.end())
+        ss << "s.s "<<rightSideCode.place << ", "<<name <<endl;
+    releaseFloatTemp(rightSideCode.place);
+    rightSideCode.code = ss.str();
 }
 
 void GteExpr::genCode(Code &code){
+    Code leftSideCode; 
+    Code rightSideCode;
+    stringstream ss;
+    this->expr1->genCode(leftSideCode);
+    this->expr2->genCode(rightSideCode);
+    ss << leftSideCode.code <<endl<< rightSideCode.code<<endl;
+    releaseFloatTemp(leftSideCode.place);
+    releaseFloatTemp(rightSideCode.place);
+    ss<< "c.le.s "<< rightSideCode.place<< ", "<< leftSideCode.place<<endl;
+    code.code = ss.str();
 }
 
 void LteExpr::genCode(Code &code){
+    Code leftSideCode; 
+    Code rightSideCode;
+    stringstream ss;
+    this->expr1->genCode(leftSideCode);
+    this->expr2->genCode(rightSideCode);
+    ss << leftSideCode.code <<endl<< rightSideCode.code<<endl;
+    releaseFloatTemp(leftSideCode.place);
+    releaseFloatTemp(rightSideCode.place);
+    ss<< "c.le.s "<< leftSideCode.place<< ", "<< rightSideCode.place<<endl;
+    code.code = ss.str();
 }
 
 void EqExpr::genCode(Code &code){
+    Code leftSideCode; 
+    Code rightSideCode;
+    stringstream ss;
+    this->expr1->genCode(leftSideCode);
+    this->expr2->genCode(rightSideCode);
+    ss << leftSideCode.code <<endl<< rightSideCode.code<<endl;
+    releaseFloatTemp(leftSideCode.place);
+    releaseFloatTemp(rightSideCode.place);
+    ss<< "c.lt.s "<< rightSideCode.place<< ", "<< leftSideCode.place<<endl;
+    code.code = ss.str();
 }
 
 void ReadFloatExpr::genCode(Code &code){
@@ -104,13 +219,66 @@ void ReadFloatExpr::genCode(Code &code){
 }
 
 string PrintStatement::genCode(){
-    return "Print statement code generation\n";
+    Code exprCode;
+    list<Expr *>::iterator expr = this->expressions.begin();
+    while (expr != expressions.end())
+    {
+        (*expr)->genCode(exprCode);
+        (*expr)++;
+    }
+    stringstream code;
+    code<< exprCode.code<<endl;
+    code << "mov.s $f12, "<< exprCode.place<<endl
+    << "li $v0, 2"<<endl
+    << "syscall"<<endl;
+    return code.str();
 }
 
 string ReturnStatement::genCode(){
-    return "Return statement code generation\n";
+
+    Code exprCode;
+    this->expr->genCode(exprCode);
+    releaseFloatTemp(exprCode.place);
+    
+    stringstream ss;
+    ss << exprCode.code << endl
+    << "move $v0, "<< exprCode.place <<endl;
+    return ss.str();
 }
 
 string MethodDefinitionStatement::genCode(){
-    return "Method definition code generation\n";
+    if(this->stmts.size() == 0)
+        return "";
+
+    int stackPointer = 4;
+    globalStackPointer = 0;
+    stringstream code;
+    code << this->id<<": "<<endl;
+    string state = saveState();
+    code <<state<<endl;
+    if(this->params.size() > 0){
+        list<string >::iterator it = this->params.begin();
+        for(int i = 0; i< this->params.size(); i++){
+            code << "sw $a"<<i<<", "<< stackPointer<<"($sp)"<<endl;
+            stackPointer +=4;
+            globalStackPointer +=4;
+            it++;
+        }
+    }
+    list<Statement *>::iterator stmt = this->stmts.begin();
+    while (stmt != stmts.end())
+    {
+        (*stmt)->genCode();
+        (*stmt)++;
+    }
+    stringstream sp;
+    int currentStackPointer = globalStackPointer;
+    sp << endl<<"addiu $sp, $sp, -"<<currentStackPointer<<endl;
+    code << retrieveState(state);
+    code << "addiu $sp, $sp, "<<currentStackPointer<<endl;
+    code <<"jr $ra"<<endl;
+    floatTempMap.clear();
+    string result = code.str();
+    result.insert(id.size() + 2, sp.str());
+    return result;
 }

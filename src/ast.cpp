@@ -43,6 +43,7 @@ set<string> floatTempMap;
 
 extern Asm assemblyFile;
 
+int labelCounter = 0;
 int globalStackPointer = 0;
 
 string saveState(){
@@ -63,6 +64,12 @@ string retrieveState(string state){
     globalStackPointer-=4;
     }
     return state;
+}
+string getNewLabel(string prefix){
+    stringstream ss;
+    ss<<prefix << labelCounter;
+    labelCounter++;
+    return ss.str();
 }
 string getFloatTemp(){
     for (int i = 0; i < FLOAT_TEMP_COUNT; i++)
@@ -128,7 +135,33 @@ string ExprStatement::genCode(){
 }
 
 string IfStatement::genCode(){
-    return "If statement code generation\n";
+    string endIfLabel = getNewLabel("endif");
+    Code exprCode;
+    this->conditionalExpr->genCode(exprCode);
+    stringstream code;
+    code << exprCode.code << endl;
+    code << "bc1f "<< endIfLabel <<endl;
+    list<Statement *>::iterator currStat = this->trueStatement.begin();
+    while (currStat != this->trueStatement.end())
+    {
+        Statement * stmt = *currStat;
+        if(stmt != NULL){
+            code<< stmt->genCode()<<endl;
+        }
+        currStat++;
+    }
+    currStat = this->falseStatement.begin();
+    while (currStat != this->falseStatement.end())
+    {
+        Statement * stmt = *currStat;
+        if(stmt != NULL){
+            code<< stmt->genCode()<<endl;
+        }
+        currStat++;
+    }
+    code<< endIfLabel <<" :"<< endl;
+    releaseFloatTemp(exprCode.place);
+    return code.str();
 }
 
 void MethodInvocationExpr::genCode(Code &code){
@@ -173,6 +206,7 @@ string AssignationStatement::genCode(){
         ss << "s.s "<<rightSideCode.place << ", "<<name <<endl;
     releaseFloatTemp(rightSideCode.place);
     rightSideCode.code = ss.str();
+    return rightSideCode.code;
 }
 
 void GteExpr::genCode(Code &code){

@@ -204,8 +204,7 @@ string AssignationStatement::genCode(){
     string name = ((IdExpr *)this->value)->id;
     if(floatTempMap.find(name) == floatTempMap.end())
         cout<<name<<endl;
-        ss << "s.s "<<rightSideCode.place << ", "<<globalStackPointer<<"($sp)" <<endl;
-        globalStackPointer+=4;
+        ss << "s.s "<<rightSideCode.place << ", "<<name<<endl;
     releaseFloatTemp(rightSideCode.place);
     rightSideCode.code = ss.str();
     return rightSideCode.code;
@@ -304,8 +303,9 @@ string MethodDefinitionStatement::genCode(){
     list<Statement *>::iterator stmt = this->stmts.begin();
     while (stmt != stmts.end())
     {
-        (*stmt)->genCode();
+        code<<(*stmt)->genCode();
         (*stmt)++;
+        cout<<code.str()<<endl;
     }
     stringstream sp;
     int currentStackPointer = globalStackPointer;

@@ -56,7 +56,9 @@ start: calc_list{
     assemblyFile.text = ".text\n";
     string code;
     list<Statement *>::iterator it = $1->begin();
+    int count{0};
     while(it != $1->end()){
+        cout<< "Count: "<<count++<<endl;
         code += (*it)->genCode();
         it++;
     }

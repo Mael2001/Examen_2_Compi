@@ -203,7 +203,9 @@ string AssignationStatement::genCode(){
     ss<< rightSideCode.code <<endl;
     string name = ((IdExpr *)this->value)->id;
     if(floatTempMap.find(name) == floatTempMap.end())
-        ss << "s.s "<<rightSideCode.place << ", "<<name <<endl;
+        cout<<name<<endl;
+        ss << "s.s "<<rightSideCode.place << ", "<<globalStackPointer<<"($sp)" <<endl;
+        globalStackPointer+=4;
     releaseFloatTemp(rightSideCode.place);
     rightSideCode.code = ss.str();
     return rightSideCode.code;
